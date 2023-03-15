@@ -36,6 +36,7 @@ SET(TOOLS
 	hackrf_debug
 	hackrf_clock
 	hackrf_sweep
+	mass_sweep
 	hackrf_operacake
 )
 
