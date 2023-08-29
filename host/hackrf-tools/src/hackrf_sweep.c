@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <fftw3.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #define _FILE_OFFSET_BITS 64
 
@@ -174,6 +175,7 @@ volatile bool do_exit = false;
 FILE* outfile = NULL;
 volatile uint32_t byte_count = 0;
 volatile uint64_t sweep_count = 0;
+volatile uint32_t results_cnt = 0;
 
 struct timeval time_start;
 struct timeval t_start;
@@ -183,6 +185,7 @@ uint32_t amp_enable;
 
 bool antenna = false;
 uint32_t antenna_enable;
+static char* antenna_id=NULL;
 
 bool binary_output = false;
 bool ifft_output = false;
@@ -335,10 +338,12 @@ int rx_callback(hackrf_transfer* transfer)
 					fftwOut[i + 1 + (fftSize / 8)][1];
 			}
 		} else {
+//			char* buffout;
+//			//want to add MIN POWER feature
 			time_t time_stamp_seconds = usb_transfer_time.tv_sec;
 			fft_time = localtime(&time_stamp_seconds);
 			strftime(time_str, 50, "%Y-%m-%d, %H:%M:%S", fft_time);
-			fprintf(outfile,
+/*			sprintf(buffout, 
 				"%s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
 				time_str,
 				(long int) usb_transfer_time.tv_usec,
@@ -346,24 +351,60 @@ int rx_callback(hackrf_transfer* transfer)
 				(uint64_t) (frequency + DEFAULT_SAMPLE_RATE_HZ / 4),
 				fft_bin_width,
 				fftSize);
+*/ 			if (antenna_id ==NULL)
+				fprintf(outfile,
+					"%s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
+					time_str,
+					(long int) usb_transfer_time.tv_usec,
+					(uint64_t) (frequency),
+					(uint64_t) (frequency + DEFAULT_SAMPLE_RATE_HZ / 4),
+					fft_bin_width,
+					fftSize);
+			else
+				fprintf(outfile,
+					"%s, %s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
+					antenna_id, time_str,
+					(long int) usb_transfer_time.tv_usec,
+					(uint64_t) (frequency),
+					(uint64_t) (frequency + DEFAULT_SAMPLE_RATE_HZ / 4),
+					fft_bin_width,
+					fftSize);
+
 			for (i = 0; (fftSize / 4) > i; i++) {
+/*				sprintf(buffout,
+					", %.2f",
+					pwr[i + 1 + (fftSize * 5) / 8]);
+*/
 				fprintf(outfile,
 					", %.2f",
 					pwr[i + 1 + (fftSize * 5) / 8]);
 			}
 			fprintf(outfile, "\n");
-			fprintf(outfile,
-				"%s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
-				time_str,
-				(long int) usb_transfer_time.tv_usec,
-				(uint64_t) (frequency + (DEFAULT_SAMPLE_RATE_HZ / 2)),
-				(uint64_t) (frequency + ((DEFAULT_SAMPLE_RATE_HZ * 3) / 4)),
-				fft_bin_width,
-				fftSize);
+			if (antenna_id==NULL)
+				fprintf(outfile,
+					"%s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
+					time_str,
+					(long int) usb_transfer_time.tv_usec,
+					(uint64_t) (frequency + (DEFAULT_SAMPLE_RATE_HZ / 2)),
+					(uint64_t) (frequency + ((DEFAULT_SAMPLE_RATE_HZ * 3) / 4)),
+					fft_bin_width,
+					fftSize);
+			else
+				fprintf(outfile,
+					"%s, %s.%06ld, %" PRIu64 ", %" PRIu64 ", %.2f, %u",
+					antenna_id, time_str,
+					(long int) usb_transfer_time.tv_usec,
+					(uint64_t) (frequency + (DEFAULT_SAMPLE_RATE_HZ / 2)),
+					(uint64_t) (frequency + ((DEFAULT_SAMPLE_RATE_HZ * 3) / 4)),
+					fft_bin_width,
+					fftSize);
+
 			for (i = 0; (fftSize / 4) > i; i++) {
+				results_cnt++;
 				fprintf(outfile, ", %.2f", pwr[i + 1 + (fftSize / 8)]);
 			}
 			fprintf(outfile, "\n");
+			fflush(outfile);
 		}
 	}
 	return 0;
@@ -378,6 +419,7 @@ static void usage()
 		"\t[-a amp_enable] # RX RF amplifier 1=Enable, 0=Disable\n"
 		"\t[-f freq_min:freq_max] # minimum and maximum frequencies in MHz\n"
 		"\t[-p antenna_enable] # Antenna port power, 1=Enable, 0=Disable\n"
+		"\t[-i antenna_id] # Antenna id - option to name port when using operacake \n"
 		"\t[-l gain_db] # RX LNA (IF) gain, 0-40dB, 8dB steps\n"
 		"\t[-g gain_db] # RX VGA (baseband) gain, 0-62dB, 2dB steps\n"
 		"\t[-w bin_width] # FFT bin width (frequency resolution) in Hz, 2445-5000000\n"
@@ -426,11 +468,16 @@ int main(int argc, char** argv)
 	uint32_t freq_max = 6000;
 	uint32_t requested_fft_bin_width;
 
-	while ((opt = getopt(argc, argv, "a:f:p:l:g:d:n:N:w:1BIr:h?")) != EOF) {
+	while ((opt = getopt(argc, argv, "a:f:p:l:g:d:n:N:w:i:1BIr:h?")) != EOF) {
 		result = HACKRF_SUCCESS;
 		switch (opt) {
 		case 'd':
 			serial_number = optarg;
+			break;
+
+		case 'i':
+//			result = parse_u8(optarg, &antenna_id);
+			antenna_id= optarg;
 			break;
 
 		case 'a':
@@ -668,10 +715,10 @@ int main(int argc, char** argv)
 	signal(SIGTERM, &sigint_callback_handler);
 	signal(SIGABRT, &sigint_callback_handler);
 #endif
-	fprintf(stderr,
+/*	fprintf(stderr,
 		"call hackrf_sample_rate_set(%.03f MHz)\n",
 		((float) DEFAULT_SAMPLE_RATE_HZ / (float) FREQ_ONE_MHZ));
-	result = hackrf_set_sample_rate_manual(device, DEFAULT_SAMPLE_RATE_HZ, 1);
+*/	result = hackrf_set_sample_rate_manual(device, DEFAULT_SAMPLE_RATE_HZ, 1);
 	if (result != HACKRF_SUCCESS) {
 		fprintf(stderr,
 			"hackrf_sample_rate_set() failed: %s (%d)\n",
@@ -681,9 +728,10 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
-	fprintf(stderr,
+/*	fprintf(stderr,
 		"call hackrf_baseband_filter_bandwidth_set(%.03f MHz)\n",
 		((float) DEFAULT_BASEBAND_FILTER_BANDWIDTH / (float) FREQ_ONE_MHZ));
+*/
 	result = hackrf_set_baseband_filter_bandwidth(
 		device,
 		DEFAULT_BASEBAND_FILTER_BANDWIDTH);
@@ -709,11 +757,11 @@ int main(int argc, char** argv)
 			1 + (frequencies[2 * i + 1] - frequencies[2 * i] - 1) / TUNE_STEP;
 		frequencies[2 * i + 1] =
 			(uint16_t) (frequencies[2 * i] + step_count * TUNE_STEP);
-		fprintf(stderr,
+/*		fprintf(stderr,
 			"Sweeping from %u MHz to %u MHz\n",
 			frequencies[2 * i],
 			frequencies[2 * i + 1]);
-	}
+*/	}
 
 	if (ifft_output) {
 		ifftwIn = (fftwf_complex*) fftwf_malloc(
@@ -783,7 +831,7 @@ int main(int argc, char** argv)
 	gettimeofday(&t_start, NULL);
 	time_prev = t_start;
 
-	fprintf(stderr, "Stop with Ctrl-C\n");
+//	fprintf(stderr, "Stop with Ctrl-C\n");
 	while ((hackrf_is_streaming(device) == HACKRF_TRUE) && (do_exit == false)) {
 		float time_difference;
 		m_sleep(50);
@@ -792,12 +840,12 @@ int main(int argc, char** argv)
 		if (TimevalDiff(&time_now, &time_prev) >= 1.0f) {
 			time_difference = TimevalDiff(&time_now, &t_start);
 			sweep_rate = (float) sweep_count / time_difference;
-			fprintf(stderr,
+/*			fprintf(stderr,
 				"%" PRIu64
 				" total sweeps completed, %.2f sweeps/second\n",
 				sweep_count,
 				sweep_rate);
-
+*/
 			if (byte_count == 0) {
 				exit_code = EXIT_FAILURE;
 				fprintf(stderr,
@@ -812,7 +860,7 @@ int main(int argc, char** argv)
 	fflush(outfile);
 	result = hackrf_is_streaming(device);
 	if (do_exit) {
-		fprintf(stderr, "\nExiting...\n");
+	//	fprintf(stderr, "\nExiting...\n");
 	} else {
 		fprintf(stderr,
 			"\nExiting... hackrf_is_streaming() result: %s (%d)\n",
@@ -825,11 +873,22 @@ int main(int argc, char** argv)
 	if ((sweep_rate == 0) && (time_diff > 0)) {
 		sweep_rate = sweep_count / time_diff;
 	}
-	fprintf(stderr,
+	if (results_cnt>1)
+	{
+	if (antenna_id!=NULL)
+		fprintf(stderr,
+		"%s Total sweeps: %" PRIu64 " in %.5f seconds (%.2f sweeps/second)\n",
+		antenna_id,
+		sweep_count,
+		time_diff,
+		sweep_rate);
+	else
+		fprintf(stderr,
 		"Total sweeps: %" PRIu64 " in %.5f seconds (%.2f sweeps/second)\n",
 		sweep_count,
 		time_diff,
 		sweep_rate);
+	}
 
 	if (device != NULL) {
 		result = hackrf_close(device);
@@ -838,12 +897,13 @@ int main(int argc, char** argv)
 				"hackrf_close() failed: %s (%d)\n",
 				hackrf_error_name(result),
 				result);
-		} else {
+		}
+	      /* 	else {
 			fprintf(stderr, "hackrf_close() done\n");
 		}
-
+*/
 		hackrf_exit();
-		fprintf(stderr, "hackrf_exit() done\n");
+//		fprintf(stderr, "hackrf_exit() done\n");
 	}
 
 	fflush(outfile);
@@ -858,6 +918,7 @@ int main(int argc, char** argv)
 	fftwf_free(window);
 	fftwf_free(ifftwIn);
 	fftwf_free(ifftwOut);
-	fprintf(stderr, "exit\n");
+//	fprintf(stderr, "exit\n");
+	fflush(stderr);
 	return exit_code;
 }
