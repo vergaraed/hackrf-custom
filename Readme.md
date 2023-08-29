@@ -1,4 +1,11 @@
-# HackRF
+# HackRF-Custom
+
+# Operacake
+
+## Mass Sweep
+
+Example:
+mass_sweep | grep -e ' -4[0-6]\.' -e '\ -3.\.' -e '\ -2.\.' -e ' -1.\.' -e ' -.\.' >> <filename>
 
 This repository contains hardware designs and software for HackRF,
 a low cost, open source Software Defined Radio platform.
